@@ -1,4 +1,5 @@
 const express = require("express");
+require("dotenv").config();
 const csv = require("csv-parser");
 const fs = require("fs");
 const createCsvWriter = require("csv-writer").createObjectCsvWriter;
@@ -19,6 +20,7 @@ const csvWriter = createCsvWriter({
     { id: "PRICE", title: "PRICE" },
     { id: "STOCK", title: "STOCK" },
   ],
+  append: false,
 });
 
 // Load CSV data
@@ -30,6 +32,7 @@ function loadCatalogData() {
       .on("data", (data) => results.push(data))
       .on("end", () => {
         catalogData = results;
+        console.log("Catalog data loaded:", catalogData.length, "records");
         resolve();
       })
       .on("error", (error) => reject(error));
@@ -39,19 +42,29 @@ function loadCatalogData() {
 // Save to CSV
 async function saveCatalogData() {
   try {
-    await csvWriter.writeRecords(catalogData);
-    console.log("CSV file updated");
+    if (fs.existsSync("catalog.csv")) {
+      fs.unlinkSync("catalog.csv");
+    }
+
+    const writer = createCsvWriter({
+      path: "catalog.csv",
+      header: [
+        { id: "ID", title: "ID" },
+        { id: "TOPIC", title: "TOPIC" },
+        { id: "TITLE", title: "TITLE" },
+        { id: "PRICE", title: "PRICE" },
+        { id: "STOCK", title: "STOCK" },
+      ],
+      append: false,
+    });
+
+    await writer.writeRecords(catalogData);
+
+    console.log("CSV file updated successfully");
   } catch (error) {
     console.error("Error saving CSV:", error);
   }
 }
-
-// Initialize data before starting server
-loadCatalogData().then(() => {
-  app.listen(PORT, () => {
-    console.log(`Catalog server is running on port ${PORT}`);
-  });
-});
 
 app.get("/search/:topic", (req, res) => {
   const topic = decodeURIComponent(req.params.topic).toLowerCase();
@@ -82,7 +95,7 @@ app.get("/info/:id", (req, res) => {
 
 app.put("/update/:id", async (req, res) => {
   const id = req.params.id;
-  const { price, stock } = req.body; // Changed from 'quantity' to 'stock'
+  const { price, stock } = req.body;
 
   const item = catalogData.find((item) => item.ID === id);
 
@@ -106,3 +119,14 @@ app.put("/update/:id", async (req, res) => {
     },
   });
 });
+
+// Initialize data before starting server
+loadCatalogData()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Catalog server is running on port ${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Failed to load catalogs:", error);
+  });
