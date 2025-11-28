@@ -361,7 +361,8 @@ This project is licensed under the ISC License.
 
 ## 👤 Author
 **Nassar Harashi**
- GitHub: [@nassarharashi](https://github.com/nassarharashi)
+ - GitHub: [@nassarharashi](https://github.com/nassarharashi)
+   
 **Malik T. Ali**
 - GitHub: [@MalikTAli](https://github.com/MalikTAli)
 
