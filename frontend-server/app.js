@@ -1,36 +1,41 @@
 const express = require("express");
 const axios = require("axios");
 const cors = require("cors");
+const NodeCache = require("node-cache");
 
 const app = express();
 
 // Middleware
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: "10mb" }));
 app.use(cors());
 app.use(express.urlencoded({ extended: true }));
 
 // Logging middleware
 app.use((req, res, next) => {
   const start = Date.now();
-  res.on('finish', () => {
+  res.on("finish", () => {
     const duration = Date.now() - start;
-    console.log(`${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`);
+    console.log(
+      `${req.method} ${req.path} - ${res.statusCode} - ${duration}ms`
+    );
   });
   next();
 });
 
 const PORT = process.env.PORT || 3002;
-const NODE_ENV = process.env.NODE_ENV || 'development';
+const NODE_ENV = process.env.NODE_ENV || "development";
+const SERVICE_ID = process.env.SERVICE_ID || `frontend-${Date.now()}`;
 
 // Use environment variables for Docker, fallback to localhost
-const CATALOG_SERVICE = process.env.CATALOG_SERVICE_URL || "http://localhost:3001";
+const CATALOG_SERVICE =
+  process.env.CATALOG_SERVICE_URL || "http://localhost:3001";
 const ORDER_SERVICE = process.env.ORDER_SERVICE_URL || "http://localhost:3000";
 
 // Configure axios with timeout and retry logic
 const axiosInstance = axios.create({
   timeout: 5000,
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
 });
 
@@ -42,7 +47,7 @@ axiosInstance.interceptors.response.use(
     if (!config || !config.retry) {
       config.retry = 0;
     }
-    if (config.retry < 3 && error.code === 'ECONNABORTED') {
+    if (config.retry < 3 && error.code === "ECONNABORTED") {
       config.retry += 1;
       console.log(`⚠️  Retrying request (${config.retry}/3)...`);
       return axiosInstance(config);
@@ -51,43 +56,67 @@ axiosInstance.interceptors.response.use(
   }
 );
 
+// Initialize cache
+const cache = new NodeCache({
+  stdTTL: 300, // 5 minutes
+  maxKeys: 100,
+});
+
 // GET /search/:topic - Search books by topic
 app.get("/search/:topic", async (req, res) => {
   try {
     const { topic } = req.params;
-    
+
     // Validate input
     if (!topic || topic.trim().length === 0) {
       return res.status(400).json({ error: "Topic parameter is required" });
     }
-    
+
     if (topic.length > 100) {
       return res.status(400).json({ error: "Topic parameter too long" });
     }
 
     console.log(`🔍 Frontend: Searching for topic "${topic}"`);
-    const response = await axiosInstance.get(`${CATALOG_SERVICE}/search/${encodeURIComponent(topic)}`);
-    
+    const cacheKey = `search:${topic.toLowerCase()}`;
+    const cachedResult = cache.get(cacheKey);
+
+    if (cachedResult) {
+      console.log(`[${SERVICE_ID}] ✅ Cache HIT for search: "${topic}"`);
+      return res.json({
+        success: true,
+        source: "cache",
+        count: cachedResult.length,
+        data: cachedResult,
+      });
+    }
+    console.log(`[${SERVICE_ID}] ❌ Cache MISS for search: "${topic}"`);
+
+    const response = await axiosInstance.get(
+      `${CATALOG_SERVICE}/search/${encodeURIComponent(topic)}`
+    );
+
+    cache.set(cacheKey, response.data);
+    console.log(`[${SERVICE_ID}] 💾 Cached search results for "${topic}"`);
     console.log(`✅ Found ${response.data.length} books`);
     res.json({
       success: true,
+      source: "catalog-service",
       count: response.data.length,
-      data: response.data
+      data: response.data,
     });
   } catch (error) {
     console.error("❌ Search failed:", error.message);
-    
+
     if (error.response) {
-      return res.status(error.response.status).json({ 
+      return res.status(error.response.status).json({
         error: "Search failed",
-        message: error.response.data.error || error.message 
+        message: error.response.data.error || error.message,
       });
     }
-    
-    if (error.code === 'ECONNABORTED') {
+
+    if (error.code === "ECONNABORTED") {
       return res.status(504).json({ error: "Catalog service timeout" });
     }
-    
     res.status(503).json({ error: "Catalog service unavailable" });
   }
 });
@@ -96,33 +125,52 @@ app.get("/search/:topic", async (req, res) => {
 app.get("/info/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Validate ID
     if (!id || !/^\d+$/.test(id)) {
-      return res.status(400).json({ error: "Invalid book ID. Must be a number." });
+      return res
+        .status(400)
+        .json({ error: "Invalid book ID. Must be a number." });
     }
 
     console.log(`ℹ️  Frontend: Getting info for book ${id}`);
+    const cacheKey = `info:${id}`;
+    const cachedResult = cache.get(cacheKey);
+    if (cachedResult) {
+      console.log(`[${SERVICE_ID}] ✅ Cache HIT for info: book ${id}`);
+      return res.json({
+        success: true,
+        source: "cache",
+        data: cachedResult,
+      });
+    }
+
+    console.log(`[${SERVICE_ID}] ❌ Cache MISS for info: book ${id}`);
+
     const response = await axiosInstance.get(`${CATALOG_SERVICE}/info/${id}`);
-    
+
+    cache.set(cacheKey, response.data);
+    console.log(`[${SERVICE_ID}] 💾 Cached info for book ${id}`);
+
     res.json({
       success: true,
-      data: response.data
+      source: "catalog-service",
+      data: response.data,
     });
   } catch (error) {
     console.error("❌ Info request failed:", error.message);
-    
+
     if (error.response) {
-      return res.status(error.response.status).json({ 
+      return res.status(error.response.status).json({
         error: "Info request failed",
-        message: error.response.data.error || error.message 
+        message: error.response.data.error || error.message,
       });
     }
-    
-    if (error.code === 'ECONNABORTED') {
+
+    if (error.code === "ECONNABORTED") {
       return res.status(504).json({ error: "Catalog service timeout" });
     }
-    
+
     res.status(503).json({ error: "Catalog service unavailable" });
   }
 });
@@ -131,36 +179,64 @@ app.get("/info/:id", async (req, res) => {
 app.post("/purchase/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Validate ID
     if (!id || !/^\d+$/.test(id)) {
-      return res.status(400).json({ error: "Invalid book ID. Must be a number." });
+      return res
+        .status(400)
+        .json({ error: "Invalid book ID. Must be a number." });
     }
 
-    console.log(`🛒 Frontend: Purchase request for book ${id}`);
-    const response = await axiosInstance.post(`${ORDER_SERVICE}/purchase/${id}`);
-    
+    console.log(`[${SERVICE_ID}] 🛒 Purchase request for book ${id}`);
+    const response = await axiosInstance.post(
+      `${ORDER_SERVICE}/purchase/${id}`
+    );
+
+    // Invalidate cache for this book
+    cache.del(`info:${id}`);
+    console.log(`[${SERVICE_ID}] 💥 Invalidated cache for book ${id}`);
+
     console.log(`✅ Purchase successful: ${response.data.book}`);
+
     res.json({
       success: true,
-      data: response.data
+      source: "order-service",
+      data: response.data,
     });
   } catch (error) {
     console.error("❌ Purchase failed:", error.message);
-    
+
     if (error.response) {
-      return res.status(error.response.status).json({ 
+      return res.status(error.response.status).json({
         error: "Purchase failed",
-        message: error.response.data.error || error.message 
+        message: error.response.data.error || error.message,
       });
     }
-    
-    if (error.code === 'ECONNABORTED') {
+
+    if (error.code === "ECONNABORTED") {
       return res.status(504).json({ error: "Order service timeout" });
     }
-    
+
     res.status(503).json({ error: "Order service unavailable" });
   }
+});
+
+// Cache invalidation endpoint
+app.post("/invalidate-cache", (req, res) => {
+  const { bookId } = req.body;
+
+  if (bookId) {
+    cache.del(`info:${bookId}`);
+    console.log(
+      `[${SERVICE_ID}] 💥 Cache invalidated for book ${bookId} (server-push)`
+    );
+  }
+
+  res.json({
+    status: "success",
+    message: "Cache invalidated",
+    serviceId: SERVICE_ID,
+  });
 });
 
 // Health check with dependency checks
@@ -170,10 +246,15 @@ app.get("/health", async (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: NODE_ENV,
+    serviceId: SERVICE_ID,
     services: {
       catalog: { url: CATALOG_SERVICE, status: "unknown" },
-      order: { url: ORDER_SERVICE, status: "unknown" }
-    }
+      order: { url: ORDER_SERVICE, status: "unknown" },
+    },
+    cache: {
+      keys: cache.keys().length,
+      stats: cache.getStats(),
+    },
   };
 
   // Check catalog service
@@ -202,9 +283,9 @@ app.get("/health", async (req, res) => {
 
 // Readiness check
 app.get("/ready", (req, res) => {
-  res.json({ 
+  res.json({
     ready: true,
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
@@ -218,25 +299,25 @@ app.get("/", (req, res) => {
       "GET /info/:id - Get book details",
       "POST /purchase/:id - Purchase a book",
       "GET /health - Health check",
-      "GET /ready - Readiness check"
-    ]
+      "GET /ready - Readiness check",
+    ],
   });
 });
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ 
+  res.status(404).json({
     error: "Not Found",
-    message: `Cannot ${req.method} ${req.path}`
+    message: `Cannot ${req.method} ${req.path}`,
   });
 });
 
 // Global error handler
 app.use((err, req, res, next) => {
-  console.error('❌ Unhandled error:', err);
+  console.error("❌ Unhandled error:", err);
   res.status(err.status || 500).json({
     error: "Internal Server Error",
-    message: NODE_ENV === 'development' ? err.message : 'An error occurred'
+    message: NODE_ENV === "development" ? err.message : "An error occurred",
   });
 });
 
@@ -252,31 +333,31 @@ const server = app.listen(PORT, () => {
 // Graceful shutdown
 const gracefulShutdown = (signal) => {
   console.log(`\n${signal} received. Starting graceful shutdown...`);
-  
+
   server.close(() => {
-    console.log('✅ HTTP server closed');
-    console.log('👋 Frontend service shut down gracefully');
+    console.log("✅ HTTP server closed");
+    console.log("👋 Frontend service shut down gracefully");
     process.exit(0);
   });
 
   // Force shutdown after 10 seconds
   setTimeout(() => {
-    console.error('⚠️  Forced shutdown after timeout');
+    console.error("⚠️  Forced shutdown after timeout");
     process.exit(1);
   }, 10000);
 };
 
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 // Handle uncaught errors
-process.on('uncaughtException', (error) => {
-  console.error('❌ Uncaught Exception:', error);
+process.on("uncaughtException", (error) => {
+  console.error("❌ Uncaught Exception:", error);
   process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
   process.exit(1);
 });
 

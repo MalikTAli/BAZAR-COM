@@ -7,7 +7,9 @@ var cors = require("cors");
 const app = express();
 app.use(express.json());
 app.use(cors());
-const PORT = 3001;
+
+const PORT = process.env.PORT || 3001;
+const SERVICE_ID = process.env.SERVICE_ID || `catalog-${Date.now()}`;
 let catalogData = [];
 
 // CSV Writer setup
@@ -60,9 +62,9 @@ async function saveCatalogData() {
 
     await writer.writeRecords(catalogData);
 
-    console.log("CSV file updated successfully");
+    console.log(`[${SERVICE_ID}] Catalog saved`);
   } catch (error) {
-    console.error("Error saving CSV:", error);
+    console.error(`[${SERVICE_ID}] Error saving catalog:`, error);
   }
 }
 
@@ -90,6 +92,7 @@ app.get("/info/:id", (req, res) => {
     quantity: parseInt(item.STOCK),
     price: parseInt(item.PRICE),
   };
+  console.log(`[${SERVICE_ID}] Info for book ${id}`);
   res.json(response);
 });
 
@@ -117,6 +120,18 @@ app.put("/update/:id", async (req, res) => {
       stock: item.STOCK,
       price: item.PRICE,
     },
+    serviceId: SERVICE_ID,
+  });
+});
+
+// Health endpoint
+app.get("/health", (req, res) => {
+  res.json({
+    status: "healthy",
+    service: "catalog",
+    serviceId: SERVICE_ID,
+    itemCount: catalogData.length,
+    port: PORT,
   });
 });
 
@@ -124,9 +139,9 @@ app.put("/update/:id", async (req, res) => {
 loadCatalogData()
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`Catalog server is running on port ${PORT}`);
+      console.log(`[${SERVICE_ID}] Catalog service running on port ${PORT}`);
     });
   })
   .catch((error) => {
-    console.error("Failed to load catalogs:", error);
+    console.error(`[${SERVICE_ID}] Failed to load catalogs:`, error);
   });
