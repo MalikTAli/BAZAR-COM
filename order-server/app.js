@@ -10,8 +10,11 @@ const formatTimestamp = require("./utils/formatDate");
 const app = express();
 app.use(express.json());
 app.use(cors());
-const PORT = process.env.PORT;
-const CATALOG_SERVICE_URL = process.env.CATALOG_SERVICE_URL;
+
+const PORT = process.env.PORT || 3000;
+const SERVICE_ID = process.env.SERVICE_ID || `order-${Date.now()}`;
+const CATALOG_SERVICE_URL =
+  process.env.CATALOG_SERVICE_URL || "http://localhost:3001";
 
 const fileExists = fs.existsSync("orders.csv");
 const csvWriter = createCsvWriter({
@@ -90,14 +93,14 @@ app.post("/purchase/:id", async (req, res) => {
   const bookId = req.params.id;
 
   try {
-    console.log(`Purchase request for book ID: ${bookId}`);
+    console.log(`[${SERVICE_ID}] Purchase request for book ${bookId}`);
 
     // 1. Get book info from catalog service
     const bookInfo = await axios.get(`${CATALOG_SERVICE_URL}/info/${bookId}`);
 
     // 2. Check if book is in stock
     if (bookInfo.data.quantity <= 0) {
-      console.log(`Book ${bookId} out of stock`);
+      console.log(`[${SERVICE_ID}] Book ${bookId} out of stock`);
       return res.status(400).json({ message: "Book out of stock" });
     }
 
@@ -129,7 +132,7 @@ app.post("/purchase/:id", async (req, res) => {
     if (error.response?.status === 404) {
       return res.status(404).json({ message: "Book not found" });
     }
-
+    console.error(`[${SERVICE_ID}] Purchase failed:`, error.message);
     res.status(500).json({ message: "Purchase failed" });
   }
 });
@@ -138,6 +141,17 @@ app.get("/orders", (req, res) => {
   res.json({
     orderCount: orders.length,
     orders: orders,
+  });
+});
+
+// Health endpoint
+app.get("/health", (req, res) => {
+  res.json({
+    status: "healthy",
+    service: "order",
+    serviceId: SERVICE_ID,
+    port: PORT,
+    catalogService: CATALOG_SERVICE_URL,
   });
 });
 
