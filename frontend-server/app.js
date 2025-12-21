@@ -26,7 +26,35 @@ const PORT = process.env.PORT || 3002;
 const NODE_ENV = process.env.NODE_ENV || "development";
 const SERVICE_ID = process.env.SERVICE_ID || `frontend-${Date.now()}`;
 
-// Use environment variables for Docker, fallback to localhost
+// Load Balancing Configuration
+// Support multiple replicas for catalog and order services
+const CATALOG_REPLICAS = process.env.CATALOG_REPLICAS
+  ? process.env.CATALOG_REPLICAS.split(",")
+  : ["http://localhost:3001"];
+const ORDER_REPLICAS = process.env.ORDER_REPLICAS
+  ? process.env.ORDER_REPLICAS.split(",")
+  : ["http://localhost:3000"];
+
+// Round-robin load balancing state
+let catalogReplicaIndex = 0;
+let orderReplicaIndex = 0;
+
+// Load balancer functions (Round-Robin)
+function getNextCatalogReplica() {
+  const replica = CATALOG_REPLICAS[catalogReplicaIndex];
+  catalogReplicaIndex = (catalogReplicaIndex + 1) % CATALOG_REPLICAS.length;
+  console.log(`🔄 Load Balancer: Using catalog replica ${replica}`);
+  return replica;
+}
+
+function getNextOrderReplica() {
+  const replica = ORDER_REPLICAS[orderReplicaIndex];
+  orderReplicaIndex = (orderReplicaIndex + 1) % ORDER_REPLICAS.length;
+  console.log(`🔄 Load Balancer: Using order replica ${replica}`);
+  return replica;
+}
+
+// Fallback for backward compatibility
 const CATALOG_SERVICE =
   process.env.CATALOG_SERVICE_URL || "http://localhost:3001";
 const ORDER_SERVICE = process.env.ORDER_SERVICE_URL || "http://localhost:3000";
@@ -91,8 +119,9 @@ app.get("/search/:topic", async (req, res) => {
     }
     console.log(`[${SERVICE_ID}] ❌ Cache MISS for search: "${topic}"`);
 
+    const catalogReplica = getNextCatalogReplica();
     const response = await axiosInstance.get(
-      `${CATALOG_SERVICE}/search/${encodeURIComponent(topic)}`
+      `${catalogReplica}/search/${encodeURIComponent(topic)}`
     );
 
     cache.set(cacheKey, response.data);
@@ -147,7 +176,8 @@ app.get("/info/:id", async (req, res) => {
 
     console.log(`[${SERVICE_ID}] ❌ Cache MISS for info: book ${id}`);
 
-    const response = await axiosInstance.get(`${CATALOG_SERVICE}/info/${id}`);
+    const catalogReplica = getNextCatalogReplica();
+    const response = await axiosInstance.get(`${catalogReplica}/info/${id}`);
 
     cache.set(cacheKey, response.data);
     console.log(`[${SERVICE_ID}] 💾 Cached info for book ${id}`);
@@ -188,8 +218,9 @@ app.post("/purchase/:id", async (req, res) => {
     }
 
     console.log(`[${SERVICE_ID}] 🛒 Purchase request for book ${id}`);
+    const orderReplica = getNextOrderReplica();
     const response = await axiosInstance.post(
-      `${ORDER_SERVICE}/purchase/${id}`
+      `${orderReplica}/purchase/${id}`
     );
 
     // Invalidate cache for this book
@@ -221,6 +252,7 @@ app.post("/purchase/:id", async (req, res) => {
   }
 });
 
+
 // Cache invalidation endpoint
 app.post("/invalidate-cache", (req, res) => {
   const { bookId } = req.body;
@@ -235,6 +267,16 @@ app.post("/invalidate-cache", (req, res) => {
   res.json({
     status: "success",
     message: "Cache invalidated",
+    serviceId: SERVICE_ID,
+  });
+});
+
+// GET /cache-stats - Cache statistics endpoint
+app.get("/cache-stats", (req, res) => {
+  res.json({
+    keys: cache.keys(),
+    stats: cache.getStats(),
+    count: cache.keys().length,
     serviceId: SERVICE_ID,
   });
 });
