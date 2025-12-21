@@ -1,35 +1,56 @@
-# Bazar.com - Lab 2: Replication, Caching, and Consistency
+# BAZAR-COM
 
-A distributed online bookstore implementing microservices architecture with replication, caching, load balancing, and strong consistency.
+A microservices-based distributed online bookstore application built with Node.js and Docker. The system implements advanced distributed systems concepts including service replication, caching, load balancing, and strong consistency.
 
 ## 📚 Features
 
-- **Microservices Architecture**: Frontend, Catalog, and Order services
-- **Service Replication**: 2 replicas each for Catalog and Order services
+### Core Architecture
+- **Microservices Architecture**: Independent, scalable services (Frontend, Catalog, Order)
+- **Service Replication**: 2 replicas each for Catalog and Order services (Lab 2)
 - **Load Balancing**: Round-robin distribution across replicas
 - **In-Memory Caching**: NodeCache with TTL and LRU support
 - **Strong Consistency**: Server-push cache invalidation before writes
 - **Replica Synchronization**: Automatic sync across catalog replicas
+
+### Development & Operations
 - **Docker Support**: Full containerization with Docker Compose and Swarm
+- **Health Checks**: Built-in health monitoring for all services
 - **Performance Monitoring**: Built-in metrics and health checks
+- **Error Handling**: Comprehensive error handling and validation
+- **Request Logging**: Detailed request/response logging
+- **Graceful Shutdown**: Proper cleanup on service termination
+- **CORS Enabled**: Cross-origin resource sharing support
 
 ## 🏗️ Architecture
+
+The application follows a microservices architecture with three main services:
 
 ```
 Client
   ↓
 Frontend Service (Port 3002)
+  - API Gateway
   - Load Balancer
   - Cache Manager
   ↓
 ├─→ Catalog Service (Port 3001) - Replica 1 & 2
 │     - Book Database
 │     - Search & Info
+│     - Stock Management
 │
 └─→ Order Service (Port 3000) - Replica 1 & 2
       - Order Processing
       - Purchase Logic
+      - Order History
 ```
+
+### Service Details
+
+| Service  | Port | Replicas | Responsibilities |
+|----------|------|----------|------------------|
+| Frontend | 3002 | 1        | API Gateway, Load Balancing, Caching |
+| Catalog  | 3001 | 2        | Book inventory, search, stock updates |
+| Order    | 3000 | 2        | Purchase orders, order history |
 
 ## 📖 Book Catalog
 
@@ -48,6 +69,7 @@ Frontend Service (Port 3002)
 ## 🚀 Quick Start
 
 ### Prerequisites
+- Node.js 18+ (for local development)
 - Docker Desktop (Windows/Mac/Linux)
 - PowerShell (for Windows testing scripts)
 - Git
@@ -56,7 +78,7 @@ Frontend Service (Port 3002)
 
 ```bash
 # Clone the repository
-git clone <your-repo-url>
+git clone https://github.com/MalikTAli/BAZAR-COM.git
 cd BAZAR-COM
 
 # Build and start all services
@@ -64,6 +86,9 @@ docker-compose up --build -d
 
 # View logs
 docker-compose logs -f
+
+# View specific service logs
+docker-compose logs -f frontend
 
 # Stop services
 docker-compose down
@@ -91,9 +116,137 @@ docker service ls
 docker stack rm bazar
 ```
 
+### Option 3: Local Development
+
+#### Catalog Service
+```bash
+cd catalog-server
+npm install
+npm start
+```
+
+#### Order Service
+```bash
+cd order-server
+npm install
+# Set environment variables (PowerShell)
+$env:PORT="3000"
+$env:CATALOG_SERVICE_URL="http://localhost:3001"
+npm start
+```
+
+#### Frontend Service
+```bash
+cd frontend-server
+npm install
+# Set environment variables (PowerShell)
+$env:PORT="3002"
+$env:CATALOG_SERVICE_URL="http://localhost:3001"
+$env:ORDER_SERVICE_URL="http://localhost:3000"
+node app.js
+```
+
 ## 📡 API Endpoints
 
-### Frontend Service (http://localhost:3002)
+### Frontend Service (API Gateway - http://localhost:3002)
+
+#### Search Books
+```http
+GET /search/:topic
+```
+Search for books by topic. Results are cached.
+
+**Example:**
+```bash
+curl http://localhost:3002/search/distributed%20systems
+# PowerShell
+Invoke-RestMethod -Uri "http://localhost:3002/search/distributed systems"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "count": 2,
+  "data": [
+    {
+      "id": "1",
+      "title": "How to get a good grade in DOS in 40 minutes a day"
+    }
+  ]
+}
+```
+
+#### Get Book Info
+```http
+GET /info/:id
+```
+Get detailed information about a specific book. Results are cached.
+
+**Example:**
+```bash
+curl http://localhost:3002/info/1
+# PowerShell
+Invoke-RestMethod -Uri "http://localhost:3002/info/1"
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "title": "How to get a good grade in DOS in 40 minutes a day",
+    "quantity": 10,
+    "price": 30
+  }
+}
+```
+
+#### Purchase Book
+```http
+POST /purchase/:id
+```
+Purchase a book by ID. Invalidates cache before purchase.
+
+**Example:**
+```bash
+curl -X POST http://localhost:3002/purchase/1
+# PowerShell
+Invoke-RestMethod -Uri "http://localhost:3002/purchase/5" -Method POST
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "data": {
+    "message": "Purchase successful",
+    "book": "How to get a good grade in DOS in 40 minutes a day",
+    "orderId": "1732819200000",
+    "price": 30
+  }
+}
+```
+
+#### Health Check
+```http
+GET /health
+```
+Check service health and dependencies.
+
+#### Cache Statistics
+```http
+GET /cache-stats
+```
+Get cache performance statistics.
+
+#### Invalidate Cache
+```http
+POST /invalidate-cache
+Body: { "key": "info:1" }
+```
+
+### API Endpoints Summary
 
 | Method | Endpoint | Description | Cached |
 |--------|----------|-------------|--------|
@@ -106,6 +259,36 @@ docker stack rm bazar
 
 ### Catalog Service (http://localhost:3001)
 
+#### Search by Topic
+```http
+GET /search/:topic
+```
+
+#### Get Book Details
+```http
+GET /info/:id
+```
+
+#### Update Book
+```http
+PUT /update/:id
+Body: { "price": 25, "stock": 15 }
+```
+Updates book price or stock, then syncs to replicas.
+
+#### Replica Sync Endpoint
+```http
+POST /sync-update/:id
+```
+Internal endpoint for replica synchronization.
+
+#### Health Check
+```http
+GET /health
+```
+
+### Catalog Service Endpoints Summary
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/search/:topic` | Search books by topic |
@@ -115,6 +298,23 @@ docker stack rm bazar
 | GET | `/health` | Health check |
 
 ### Order Service (http://localhost:3000)
+
+#### Create Purchase Order
+```http
+POST /purchase/:id
+```
+
+#### Get All Orders
+```http
+GET /orders
+```
+
+#### Health Check
+```http
+GET /health
+```
+
+### Order Service Endpoints Summary
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
@@ -209,33 +409,73 @@ const cache = new NodeCache({
 });
 ```
 
+## 🐳 Docker Configuration
+
+### Docker Services
+
+| Service  | Port | Container Name     | Health Check |
+|----------|------|--------------------|--------------|
+| Catalog  | 3001 | catalog-service    | ✅           |
+| Order    | 3000 | order-service      | ✅           |
+| Frontend | 3002 | frontend-service   | ✅           |
+
+### Docker Commands
+
+```bash
+# Build and start services
+docker-compose up --build
+
+# Start services in background
+docker-compose up -d
+
+# Stop services
+docker-compose down
+
+# View logs
+docker-compose logs -f
+
+# View specific service logs
+docker-compose logs -f frontend
+
+# Restart a service
+docker-compose restart catalog
+
+# Check service status
+docker-compose ps
+```
+
 ## 📁 Project Structure
 
 ```
 BAZAR-COM/
 ├── catalog-server/
-│   ├── app.js              # Catalog service
-│   ├── catalog.csv         # Book database
-│   ├── Dockerfile
+│   ├── app.js              # Catalog service implementation
+│   ├── catalog.csv         # Book inventory database
+│   ├── Dockerfile          # Catalog Docker config
 │   └── package.json
 ├── order-server/
-│   ├── app.js              # Order service
+│   ├── app.js              # Order service implementation
 │   ├── orders.csv          # Orders database
-│   ├── Dockerfile
-│   └── package.json
+│   ├── Dockerfile          # Order Docker config
+│   ├── package.json
+│   └── utils/
+│       └── formatDate.js   # Date formatting utility
 ├── frontend-server/
-│   ├── app.js              # Frontend + Cache + LB
-│   ├── Dockerfile
+│   ├── app.js              # Frontend API gateway + Cache + Load Balancer
+│   ├── Dockerfile          # Frontend Docker config
 │   └── package.json
 ├── docs/
 │   ├── DESIGN.md           # Design document
-│   └── PERFORMANCE.md      # Performance results
+│   ├── PERFORMANCE.md      # Performance results
+│   ├── performance-results.csv
+│   └── TEST-OUTPUT.md
 ├── docker-compose.yml      # Development setup
 ├── docker-swarm.yml        # Production setup
 ├── build-images.sh         # Build Docker images
 ├── deploy-swarm.sh         # Deploy to Swarm
 ├── scale-services.sh       # Scale replicas
-└── test-performance.ps1    # Performance tests
+├── test-performance.ps1    # Performance tests
+└── README.md               # This file
 ```
 
 ## 🎯 Key Implementation Details
@@ -295,6 +535,15 @@ docker-compose down -v
 docker-compose up --build
 ```
 
+### Services can't connect to each other
+- Ensure all services are on the same Docker network
+- Check that service names match in environment variables
+- Verify health checks are passing
+
+### Port conflicts
+- Check if ports 3000, 3001, 3002 are available
+- Modify port mappings in `docker-compose.yml` if needed
+
 ### Cache not working
 ```bash
 # Check frontend logs
@@ -313,7 +562,25 @@ docker-compose logs catalog
 docker exec catalog-service env | grep REPLICA
 ```
 
-## 🚧 Known Limitations
+### CSV file not found
+- Ensure CSV files exist in respective service directories
+- Check volume mappings in `docker-compose.yml`
+
+## � Data Format
+
+### catalog.csv
+```csv
+ID,TOPIC,TITLE,PRICE,STOCK
+1,distributed systems,How to get a good grade in DOS in 40 minutes a day,30,10
+```
+
+### orders.csv
+```csv
+ORDER_ID,BOOK_ID,TITLE,QUANTITY,TOTAL_PRICE,TIMESTAMP
+1732819200000,1,How to get a good grade in DOS in 40 minutes a day,1,30,2024-11-28 10:30:00
+```
+
+## �🚧 Known Limitations
 
 1. **CSV File Storage**: Not suitable for production (use PostgreSQL/MongoDB)
 2. **No Authentication**: API is publicly accessible
@@ -324,31 +591,63 @@ docker exec catalog-service env | grep REPLICA
 
 ## 🔮 Future Improvements
 
-- [ ] Replace CSV with proper database
+- [ ] Replace CSV with proper database (PostgreSQL/MongoDB)
 - [ ] Add frontend replication with shared cache (Redis)
 - [ ] Implement circuit breaker pattern
-- [ ] Add authentication and authorization
+- [ ] Add authentication and authorization (JWT)
 - [ ] Implement request rate limiting
 - [ ] Add distributed tracing (OpenTelemetry)
 - [ ] Implement consensus protocol (Raft) for replicas
 - [ ] Add monitoring dashboard (Grafana)
 - [ ] Implement automated testing (Jest/Mocha)
-- [ ] Add CI/CD pipeline
+- [ ] Add CI/CD pipeline (GitHub Actions)
+- [ ] Implement API versioning
+- [ ] Add request/response compression
+
+## 🔒 Best Practices Implemented
+
+- ✅ Input validation on all endpoints
+- ✅ Proper HTTP status codes
+- ✅ Structured error responses
+- ✅ Request timeout handling
+- ✅ Container health checks
+- ✅ Graceful shutdown handling
+- ✅ Environment-based configuration
+- ✅ Service dependency management
+- ✅ Request/response logging
+- ✅ Proper CORS configuration
+- ✅ Retry logic for failed requests
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## 📄 License
 
 This project is created for educational purposes as part of Distributed Operating Systems coursework.
 
-## 👥 Contributors
+## 👥 Authors
 
-[Your Name/Team]
+**Nassar Harashi**
+- GitHub: [@nassarharashi](https://github.com/nassarharashi)
 
-## 📮 Contact
+**Malik T. Ali**
+- GitHub: [@MalikTAli](https://github.com/MalikTAli)
 
-For questions or issues, please contact [your-email]
+## 🙏 Acknowledgments
+
+- Built with Express.js and Node.js
+- Containerized with Docker
+- CSV processing with csv-parser and csv-writer
+- Caching with node-cache
+- Part of Distributed Operating Systems coursework
 
 ---
 
-**Lab 2 - Distributed Operating Systems**  
-**Fall 2020**  
-**Topic**: Replication, Caching, and Consistency
+**Distributed Operating Systems - Labs 1 & 2**  
+**Fall 2024**  
+**Topics**: Microservices, Replication, Caching, and Consistency
