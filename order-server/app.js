@@ -15,6 +15,7 @@ const PORT = process.env.PORT || 3000;
 const SERVICE_ID = process.env.SERVICE_ID || `order-${Date.now()}`;
 const CATALOG_SERVICE_URL =
   process.env.CATALOG_SERVICE_URL || "http://localhost:3001";
+const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3002";
 
 const fileExists = fs.existsSync("orders.csv");
 const csvWriter = createCsvWriter({
@@ -89,6 +90,20 @@ async function saveOrders(order) {
   }
 }
 
+// Server-push cache invalidation
+async function invalidateFrontendCache(bookId) {
+  try {
+    console.log(`[${SERVICE_ID}] 📤 Sending cache invalidation to frontend for book ${bookId}`);
+    await axios.post(`${FRONTEND_URL}/invalidate-cache`, { bookId }, {
+      timeout: 2000,
+    });
+    console.log(`[${SERVICE_ID}] ✅ Cache invalidation sent successfully`);
+  } catch (error) {
+    console.error(`[${SERVICE_ID}] ⚠️  Failed to invalidate cache:`, error.message);
+    // Don't fail the request if cache invalidation fails
+  }
+}
+
 app.post("/purchase/:id", async (req, res) => {
   const bookId = req.params.id;
 
@@ -104,12 +119,15 @@ app.post("/purchase/:id", async (req, res) => {
       return res.status(400).json({ message: "Book out of stock" });
     }
 
-    // 3. Decrement stock in catalog service
+    // 3. Invalidate cache BEFORE updating stock
+    await invalidateFrontendCache(bookId);
+
+    // 4. Decrement stock in catalog service
     await axios.put(`${CATALOG_SERVICE_URL}/update/${bookId}`, {
       stock: bookInfo.data.quantity - 1,
     });
 
-    // 4. Create and save order
+    // 5. Create and save order
     const newOrder = {
       ORDER_ID: Date.now().toString(),
       BOOK_ID: bookId,
