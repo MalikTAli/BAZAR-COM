@@ -1,0 +1,7 @@
+"Test","AvgMs","MedianMs","MinMs","MaxMs"
+"Search (No Cache)","0","0","0","0"
+"Search (With Cache)","0","0","0","0"
+"Info (No Cache)","0","0","0","0"
+"Info (With Cache)","0","0","0","0"
+"Purchase","0","0","0","0"
+"Cache Invalidation","47.2","47","44","51"
