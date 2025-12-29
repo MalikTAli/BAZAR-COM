@@ -11,11 +11,29 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// Middleware to add service ID to all responses
+app.use((req, res, next) => {
+  res.setHeader('X-Service-ID', SERVICE_ID);
+  next();
+});
+
 const PORT = process.env.PORT || 3000;
 const SERVICE_ID = process.env.SERVICE_ID || `order-${Date.now()}`;
-const CATALOG_SERVICE_URL =
-  process.env.CATALOG_SERVICE_URL || "http://localhost:3001";
+const CATALOG_REPLICAS = process.env.CATALOG_REPLICAS
+  ? process.env.CATALOG_REPLICAS.split(",")
+  : ["http://localhost:3001"];
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3002";
+
+// Round-robin index for catalog replicas
+let catalogReplicaIndex = 0;
+
+// Function to get next catalog replica
+function getNextCatalogReplica() {
+  const replica = CATALOG_REPLICAS[catalogReplicaIndex];
+  catalogReplicaIndex = (catalogReplicaIndex + 1) % CATALOG_REPLICAS.length;
+  console.log(`[${SERVICE_ID}] 🔄 Using catalog replica: ${replica}`);
+  return replica;
+}
 
 const fileExists = fs.existsSync("orders.csv");
 const csvWriter = createCsvWriter({
@@ -110,8 +128,9 @@ app.post("/purchase/:id", async (req, res) => {
   try {
     console.log(`[${SERVICE_ID}] Purchase request for book ${bookId}`);
 
-    // 1. Get book info from catalog service
-    const bookInfo = await axios.get(`${CATALOG_SERVICE_URL}/info/${bookId}`);
+    // 1. Get book info from catalog service (using load balancing)
+    const catalogUrl = getNextCatalogReplica();
+    const bookInfo = await axios.get(`${catalogUrl}/info/${bookId}`);
 
     // 2. Check if book is in stock
     if (bookInfo.data.quantity <= 0) {
@@ -123,7 +142,7 @@ app.post("/purchase/:id", async (req, res) => {
     await invalidateFrontendCache(bookId);
 
     // 4. Decrement stock in catalog service
-    await axios.put(`${CATALOG_SERVICE_URL}/update/${bookId}`, {
+    await axios.put(`${catalogUrl}/update/${bookId}`, {
       stock: bookInfo.data.quantity - 1,
     });
 
@@ -176,10 +195,10 @@ app.get("/health", (req, res) => {
 loadOrders()
   .then(() => {
     app.listen(PORT, () => {
-      console.log(`🚀 Order server running on port ${PORT}`);
-      console.log(`Catalog service: ${CATALOG_SERVICE_URL}`);
+      console.log(`[${SERVICE_ID}] 🚀 Order server running on port ${PORT}`);
+      console.log(`[${SERVICE_ID}] 📚 Catalog replicas: ${CATALOG_REPLICAS.join(", ")}`);
     });
   })
   .catch((error) => {
-    console.error("Failed to load orders:", error);
+    console.error(`[${SERVICE_ID}] Failed to load orders:`, error);
   });

@@ -9,6 +9,12 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
+// Middleware to add service ID to all responses
+app.use((req, res, next) => {
+  res.setHeader('X-Service-ID', SERVICE_ID);
+  next();
+});
+
 const PORT = process.env.PORT || 3001;
 const SERVICE_ID = process.env.SERVICE_ID || `catalog-${Date.now()}`;
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3002";

@@ -1,35 +1,75 @@
 services:
-  catalog:
+  # Catalog Service - Replica 1
+  catalog1:
     build: ./catalog-server
-    container_name: catalog-service
-    ports:
-      - "3001:3001"
-    volumes:
-      - ./catalog-server/catalog.csv:/app/catalog.csv
+    container_name: catalog-service-1
     environment:
       - NODE_ENV=production
       - PORT=3001
+      - SERVICE_ID=catalog-1
+      - REPLICA_URLS=http://catalog2:3001
+      - FRONTEND_URL=http://frontend:3002
+    volumes:
+      - ./catalog-server/catalog.csv:/app/catalog.csv
     networks:
       - bazar-network
     restart: unless-stopped
 
-  order:
-    build: ./order-server
-    container_name: order-service
-    ports:
-      - "3000:3000"
+  # Catalog Service - Replica 2
+  catalog2:
+    build: ./catalog-server
+    container_name: catalog-service-2
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - SERVICE_ID=catalog-2
+      - REPLICA_URLS=http://catalog1:3001
+      - FRONTEND_URL=http://frontend:3002
     volumes:
-      - ./order-server/orders.csv:/app/orders.csv
+      - ./catalog-server/catalog.csv:/app/catalog.csv
+    networks:
+      - bazar-network
+    restart: unless-stopped
+
+  # Order Service - Replica 1
+  order1:
+    build: ./order-server
+    container_name: order-service-1
     environment:
       - NODE_ENV=production
       - PORT=3000
-      - CATALOG_SERVICE_URL=http://catalog:3001
+      - SERVICE_ID=order-1
+      - CATALOG_REPLICAS=http://catalog1:3001,http://catalog2:3001
+      - FRONTEND_URL=http://frontend:3002
+    volumes:
+      - ./order-server/orders.csv:/app/orders.csv
     depends_on:
-      - catalog
+      - catalog1
+      - catalog2
     networks:
       - bazar-network
     restart: unless-stopped
 
+  # Order Service - Replica 2
+  order2:
+    build: ./order-server
+    container_name: order-service-2
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - SERVICE_ID=order-2
+      - CATALOG_REPLICAS=http://catalog1:3001,http://catalog2:3001
+      - FRONTEND_URL=http://frontend:3002
+    volumes:
+      - ./order-server/orders.csv:/app/orders.csv
+    depends_on:
+      - catalog1
+      - catalog2
+    networks:
+      - bazar-network
+    restart: unless-stopped
+
+  # Frontend Service (with Load Balancing and Caching)
   frontend:
     build: ./frontend-server
     container_name: frontend-service
@@ -38,13 +78,13 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3002
-      - CATALOG_SERVICE_URL=http://catalog:3001
-      - ORDER_SERVICE_URL=http://order:3000
-      - CATALOG_REPLICAS=http://catalog:3001
-      - ORDER_REPLICAS=http://order:3000
+      - CATALOG_REPLICAS=http://catalog1:3001,http://catalog2:3001
+      - ORDER_REPLICAS=http://order1:3000,http://order2:3000
     depends_on:
-      - catalog
-      - order
+      - catalog1
+      - catalog2
+      - order1
+      - order2
     networks:
       - bazar-network
     restart: unless-stopped
