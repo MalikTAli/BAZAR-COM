@@ -290,8 +290,8 @@ app.get("/health", async (req, res) => {
     environment: NODE_ENV,
     serviceId: SERVICE_ID,
     services: {
-      catalog: { url: CATALOG_SERVICE, status: "unknown" },
-      order: { url: ORDER_SERVICE, status: "unknown" },
+      catalogReplicas: [],
+      orderReplicas: [],
     },
     cache: {
       keys: cache.keys().length,
@@ -299,24 +299,26 @@ app.get("/health", async (req, res) => {
     },
   };
 
-  // Check catalog service
-  try {
-    await axiosInstance.get(`${CATALOG_SERVICE}/health`, { timeout: 2000 });
-    health.services.catalog.status = "healthy";
-  } catch (error) {
-    health.services.catalog.status = "unhealthy";
-    health.services.catalog.error = error.message;
-    health.status = "degraded";
+  // Check catalog replicas
+  for (const replica of CATALOG_REPLICAS) {
+    try {
+      await axiosInstance.get(`${replica}/health`, { timeout: 2000 });
+      health.services.catalogReplicas.push({ url: replica, status: "healthy" });
+    } catch (error) {
+      health.services.catalogReplicas.push({ url: replica, status: "unhealthy", error: error.message });
+      health.status = "degraded";
+    }
   }
 
-  // Check order service
-  try {
-    await axiosInstance.get(`${ORDER_SERVICE}/health`, { timeout: 2000 });
-    health.services.order.status = "healthy";
-  } catch (error) {
-    health.services.order.status = "unhealthy";
-    health.services.order.error = error.message;
-    health.status = "degraded";
+  // Check order replicas
+  for (const replica of ORDER_REPLICAS) {
+    try {
+      await axiosInstance.get(`${replica}/health`, { timeout: 2000 });
+      health.services.orderReplicas.push({ url: replica, status: "healthy" });
+    } catch (error) {
+      health.services.orderReplicas.push({ url: replica, status: "unhealthy", error: error.message });
+      health.status = "degraded";
+    }
   }
 
   const statusCode = health.status === "healthy" ? 200 : 503;

@@ -3,6 +3,8 @@ services:
   catalog1:
     build: ./catalog-server
     container_name: catalog-service-1
+    ports:
+      - "3001:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -19,6 +21,8 @@ services:
   catalog2:
     build: ./catalog-server
     container_name: catalog-service-2
+    ports:
+      - "3003:3001"
     environment:
       - NODE_ENV=production
       - PORT=3001
@@ -35,6 +39,8 @@ services:
   order1:
     build: ./order-server
     container_name: order-service-1
+    ports:
+      - "3000:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000
@@ -54,6 +60,8 @@ services:
   order2:
     build: ./order-server
     container_name: order-service-2
+    ports:
+      - "3004:3000"
     environment:
       - NODE_ENV=production
       - PORT=3000

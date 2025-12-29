@@ -188,7 +188,8 @@ app.get("/health", (req, res) => {
     service: "order",
     serviceId: SERVICE_ID,
     port: PORT,
-    catalogService: CATALOG_SERVICE_URL,
+    catalogReplicas: CATALOG_REPLICAS,
+    loadBalancing: "Round-Robin",
   });
 });
 
